@@ -31,6 +31,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # Read and calculate semantic version numbers
 semver = "1.0"
+# Guard to ensure cleanup code runs even on panic
+scopeguard = "1.2"
 # Date + time manipulation
 tokio = { version = "1", features = ["full"] }
 # Terminal UI library

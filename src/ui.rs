@@ -34,6 +34,7 @@ pub async fn draw_ui(
     filters: AdGuardFilteringStatus,
     shutdown: Arc<tokio::sync::Notify>
 ) -> Result<(), anyhow::Error> {
+    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -41,40 +42,69 @@ pub async fn draw_ui(
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
+    // Ensure cleanup happens even on panic or early return
+    let cleanup = scopeguard::guard((), |_| {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            std::io::stdout(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        );
+    });
+
+    // Initialize state with default/empty data
+    let mut data: Option<Vec<Query>> = None;
+    let mut stats: Option<StatsResponse> = None;
+    let mut status: Option<StatusResponse> = None;
+
     loop {
-        // Receive query log and stats data from the fetcher
-        let data = match data_rx.recv().await {
-            Some(data) => data,
-            None => break, // Channel has been closed, so we break the loop
-        };
-        let mut stats = match stats_rx.recv().await {
-            Some(stats) => stats,
-            None => break,
-        };
-        let status = match status_rx.recv().await {
-            Some(status) => status,
-            None => break,
-        };
+        // Collect updates from all channels before redrawing
+        let mut received_count = 0;
+
+        // Wait for all three channels to send data
+        while received_count < 3 {
+            tokio::select! {
+                Some(new_data) = data_rx.recv() => {
+                    data = Some(new_data);
+                    received_count += 1;
+                }
+                Some(new_stats) = stats_rx.recv() => {
+                    stats = Some(new_stats);
+                    received_count += 1;
+                }
+                Some(new_status) = status_rx.recv() => {
+                    status = Some(new_status);
+                    received_count += 1;
+                }
+                else => break, // All channels closed
+            }
+        }
+
+        // Only render if we have at least some data
+        if data.is_none() || stats.is_none() || status.is_none() {
+            continue;
+        }
 
         // Prepare the data for the chart
-        prepare_chart_data(&mut stats);
+        let mut stats_clone = stats.clone().unwrap();
+        prepare_chart_data(&mut stats_clone);
 
         terminal.draw(|f| {
             let size = f.size();
 
             // Make the charts
-            let gauge = make_gauge(&stats);
-            let table = make_query_table(&data, size.width);
-            let graph = make_history_chart(&stats);
-            let paragraph = render_status_paragraph(&status, &stats);
+            let gauge = make_gauge(&stats_clone);
+            let table = make_query_table(data.as_ref().unwrap(), size.width);
+            let graph = make_history_chart(&stats_clone);
+            let paragraph = render_status_paragraph(status.as_ref().unwrap(), &stats_clone);
             let filter_items: &[Filter] = filters
                 .filters
                 .as_deref()
                 .unwrap_or(&[]);
             let filters_list = make_filters_list(filter_items, size.width);
-            let top_queried_domains = make_list("Top Queried Domains", &stats.top_queried_domains, Color::Green, size.width);
-            let top_blocked_domains = make_list("Top Blocked Domains", &stats.top_blocked_domains, Color::Red, size.width);
-            let top_clients = make_list("Top Clients", &stats.top_clients, Color::Cyan, size.width);
+            let top_queried_domains = make_list("Top Queried Domains", &stats_clone.top_queried_domains, Color::Green, size.width);
+            let top_blocked_domains = make_list("Top Blocked Domains", &stats_clone.top_blocked_domains, Color::Red, size.width);
+            let top_clients = make_list("Top Clients", &stats_clone.top_clients, Color::Cyan, size.width);
 
             let constraints = if size.height > 42 {
                 vec![
@@ -145,14 +175,13 @@ pub async fn draw_ui(
             }
         })?;
 
-        // Check for user input events
-        if poll(Duration::from_millis(100))? {
+        // Check for user input events (non-blocking)
+        if poll(Duration::from_millis(0))? {
             match read()? {
                 Event::Key(KeyEvent {
                     code: KeyCode::Char('q'),
                     ..
                 }) => {
-                    // std::process::exit(0);
                     shutdown.notify_waiters();
                     break;
                 }
@@ -170,20 +199,18 @@ pub async fn draw_ui(
                     shutdown.notify_waiters();
                     break;
                 }
-                Event::Resize(_, _) => {}, // Handle resize event, loop will redraw the UI
+                Event::Resize(_, _) => {}, // Handle resize event
                 _ => {}
             }
         }
 
     }
 
+    // Show cursor before cleanup guard runs
     terminal.show_cursor()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    disable_raw_mode()?;
+
+    // Explicit cleanup is handled by the scopeguard
+    drop(cleanup);
     Ok(())
 }
 

@@ -12,6 +12,8 @@ pub struct QueryResponse {
 pub struct Query {
     pub cached: bool,
     pub client: String,
+    #[serde(rename = "client_id", default)]
+    pub client_id: Option<String>,
     pub upstream: String,
     #[serde(rename = "elapsedMs")]
     pub elapsed_ms: String,

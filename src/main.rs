@@ -48,7 +48,7 @@ async fn run() -> anyhow::Result<()> {
 
     // Get update interval (in seconds)
     let interval_secs: u64 = env::var("ADGUARD_UPDATE_INTERVAL")
-        .unwrap_or_else(|_| "2".into()).parse()?;
+        .unwrap_or_else(|_| "1".into()).parse()?;
     let mut interval = interval(Duration::from_secs(interval_secs));
     
     // Open loop for fetching data at the specified interval
@@ -82,6 +82,25 @@ async fn run() -> anyhow::Result<()> {
 }
 
 fn main() {
+    // Set up panic hook to ensure terminal cleanup on panic
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        use crossterm::{
+            execute,
+            terminal::{disable_raw_mode, LeaveAlternateScreen},
+            event::DisableMouseCapture,
+        };
+        // Try to restore terminal state
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            std::io::stdout(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        );
+        // Call the default panic handler
+        default_panic(info);
+    }));
+
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         welcome::welcome().await.map_err(|e| {
@@ -90,12 +109,24 @@ fn main() {
         }).unwrap();
 
         run().await.map_err(|e| {
+            // Ensure terminal cleanup on error
+            use crossterm::{
+                execute,
+                terminal::{disable_raw_mode, LeaveAlternateScreen},
+                event::DisableMouseCapture,
+            };
+            let _ = disable_raw_mode();
+            let _ = execute!(
+                std::io::stdout(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            );
             eprintln!("Failed to run: {}", e);
             std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to run: {}", e))
         }).unwrap_or_else(|e| {
             eprintln!("Error: {}", e);
             std::process::exit(1);
-        });        
+        });
     });
 }
 

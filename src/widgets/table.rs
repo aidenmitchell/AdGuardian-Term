@@ -17,7 +17,13 @@ pub fn make_query_table(data: &[Query], width: u16) -> Table<'_> {
       let question = Cell::from(make_request_cell(&query.question).unwrap())
           .style(Style::default().add_modifier(Modifier::BOLD));
 
-      let client = Cell::from(query.client.as_str())
+      // Use client_id if available, otherwise fall back to IP
+      let client_display = query.client_id
+          .as_ref()
+          .filter(|id| !id.is_empty())
+          .map(|id| id.as_str())
+          .unwrap_or(&query.client);
+      let client = Cell::from(client_display)
           .style(Style::default().fg(Color::Blue));
 
       let (time_taken, elapsed_color) = make_time_taken_and_color(&query.elapsed_ms).unwrap();
@@ -26,7 +32,18 @@ pub fn make_query_table(data: &[Query], width: u16) -> Table<'_> {
       let (status_txt, status_color) = block_status_text(&query.reason, query.cached);
       let status = Cell::from(status_txt).style(Style::default().fg(status_color));
 
-      let upstream = Cell::from(query.upstream.as_str()).style(Style::default().fg(Color::Blue));
+      // Extract just the domain from upstream DNS for readability
+      let upstream_display = query.upstream
+          .strip_prefix("https://")
+          .or_else(|| query.upstream.strip_prefix("http://"))
+          .unwrap_or(&query.upstream)
+          .split(':')
+          .next()
+          .unwrap_or(&query.upstream)
+          .split('/')
+          .next()
+          .unwrap_or(&query.upstream);
+      let upstream = Cell::from(upstream_display).style(Style::default().fg(Color::Blue));
 
       let color = make_row_color(&query.reason);
       Row::new(vec![time, question, status, elapsed_ms, client, upstream])
@@ -134,13 +151,15 @@ fn make_row_color(reason: &str) -> Color {
 fn block_status_text(reason: &str, cached: bool) -> (String, Color) {
   let (text, color) =
   if reason == "FilteredBlackList" {
-      ("Blacklisted".to_string(), Color::Red)
+      ("Blocked".to_string(), Color::Red)
   } else if cached {
       ("Cached".to_string(), Color::Cyan)
   } else if reason == "NotFilteredNotFound" {
       ("Allowed".to_string(), Color::Green)
+  } else if reason == "Rewrite" {
+      ("Rewritten".to_string(), Color::Yellow)
   } else {
-      ("Other Block".to_string(), Color::Yellow)
+      (reason.to_string(), Color::Magenta)
   };
   (text, color)
 }
