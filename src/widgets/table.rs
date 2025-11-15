@@ -165,14 +165,17 @@ fn block_status_text(reason: &str, cached: bool, filter_id: Option<i64>, filter_
       let filter_name = filter_id
           .and_then(|id| filter_map.get(&id))
           .map(|name| {
-              // Shorten common prefixes/suffixes for readability
-              name.replace("HaGeZi's ", "")
-                  .replace(" Blocklist", "")
-                  .replace("Blocklist", "")
-                  .replace(" Filter", "")
-                  .replace("Filter", "")
-                  .replace(" Tracker", "")
-                  .replace("Tracker", "")
+              // Shorten common prefixes/suffixes for readability (case-insensitive)
+              let mut shortened = name.to_string();
+              for pattern in &[
+                  "HaGeZi's ", "hagezi's ",
+                  " Blocklist", " blocklist", "Blocklist", "blocklist",
+                  " Filter", " filter", "Filter", "filter",
+                  " Tracker", " tracker", "Tracker", "tracker"
+              ] {
+                  shortened = shortened.replace(pattern, "");
+              }
+              shortened
           });
 
       let status_text = if let Some(fname) = filter_name {
