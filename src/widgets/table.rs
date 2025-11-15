@@ -8,7 +8,17 @@ use tui::{
 use chrono::{DateTime, Utc};
 
 use crate::fetch::fetch_query_log::{Query, Question};
-pub fn make_query_table(data: &[Query], width: u16) -> Table<'_> {
+use crate::fetch::fetch_filters::Filter;
+use std::collections::HashMap;
+
+pub fn make_query_table<'a>(data: &'a [Query], filters: &[Filter], width: u16) -> Table<'a> {
+  // Create a lookup map from filter_id to filter name
+  let filter_map: HashMap<i64, &str> = filters
+      .iter()
+      .map(|f| (f.id, f.name.as_str()))
+      .collect();
+
+
   let rows = data.iter().map(|query| {
       let time = Cell::from(
           time_ago(query.time.as_str()).unwrap_or("unknown".to_string())
@@ -29,7 +39,7 @@ pub fn make_query_table(data: &[Query], width: u16) -> Table<'_> {
       let (time_taken, elapsed_color) = make_time_taken_and_color(&query.elapsed_ms).unwrap();
       let elapsed_ms = Cell::from(time_taken).style(Style::default().fg(elapsed_color));
 
-      let (status_txt, status_color) = block_status_text(&query.reason, query.cached);
+      let (status_txt, status_color) = block_status_text(&query.reason, query.cached, query.filter_id, &filter_map);
       let status = Cell::from(status_txt).style(Style::default().fg(status_color));
 
       // Extract just the domain from upstream DNS for readability
@@ -74,9 +84,9 @@ pub fn make_query_table(data: &[Query], width: u16) -> Table<'_> {
       ]);
       
       let widths = &[
-          Constraint::Percentage(15),
-          Constraint::Percentage(35),
           Constraint::Percentage(10),
+          Constraint::Percentage(35),
+          Constraint::Percentage(15),
           Constraint::Percentage(10),
           Constraint::Percentage(15),
           Constraint::Percentage(15),
@@ -118,7 +128,7 @@ fn time_ago(timestamp: &str) -> Result<String, anyhow::Error> {
 
 // Return cell showing info about the request made in a given query
 fn make_request_cell(q: &Question) -> Result<String, anyhow::Error> {
-  Ok(format!("[{}] {} - {}", q.class, q.question_type, q.name))
+  Ok(format!("{} - {}", q.question_type, q.name))
 }
 
 // Return a cell showing the time taken for a query, and a color based on time
@@ -148,10 +158,29 @@ fn make_row_color(reason: &str) -> Color {
 }
 
 // Return text and color for the status cell based on allow/ block reason
-fn block_status_text(reason: &str, cached: bool) -> (String, Color) {
+fn block_status_text(reason: &str, cached: bool, filter_id: Option<i64>, filter_map: &HashMap<i64, &str>) -> (String, Color) {
   let (text, color) =
   if reason == "FilteredBlackList" {
-      ("Blocked".to_string(), Color::Red)
+      // Look up filter name if filter_id is present
+      let filter_name = filter_id
+          .and_then(|id| filter_map.get(&id))
+          .map(|name| {
+              // Shorten common prefixes/suffixes for readability
+              name.replace("HaGeZi's ", "")
+                  .replace(" Blocklist", "")
+                  .replace("Blocklist", "")
+                  .replace(" Filter", "")
+                  .replace("Filter", "")
+                  .replace(" Tracker", "")
+                  .replace("Tracker", "")
+          });
+
+      let status_text = if let Some(fname) = filter_name {
+          format!("Blocked ({})", fname)
+      } else {
+          "Blocked".to_string()
+      };
+      (status_text, Color::Red)
   } else if cached {
       ("Cached".to_string(), Color::Cyan)
   } else if reason == "NotFilteredNotFound" {

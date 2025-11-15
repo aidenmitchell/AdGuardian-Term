@@ -17,6 +17,8 @@ pub struct Query {
     pub upstream: String,
     #[serde(rename = "elapsedMs")]
     pub elapsed_ms: String,
+    #[serde(rename = "filterId", default)]
+    pub filter_id: Option<i64>,
     pub question: Question,
     pub reason: String,
     pub time: String,

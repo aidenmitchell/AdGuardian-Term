@@ -94,13 +94,13 @@ pub async fn draw_ui(
 
             // Make the charts
             let gauge = make_gauge(&stats_clone);
-            let table = make_query_table(data.as_ref().unwrap(), size.width);
-            let graph = make_history_chart(&stats_clone);
-            let paragraph = render_status_paragraph(status.as_ref().unwrap(), &stats_clone);
             let filter_items: &[Filter] = filters
                 .filters
                 .as_deref()
                 .unwrap_or(&[]);
+            let table = make_query_table(data.as_ref().unwrap(), filter_items, size.width);
+            let graph = make_history_chart(&stats_clone);
+            let paragraph = render_status_paragraph(status.as_ref().unwrap(), &stats_clone);
             let filters_list = make_filters_list(filter_items, size.width);
             let top_queried_domains = make_list("Top Queried Domains", &stats_clone.top_queried_domains, Color::Green, size.width);
             let top_blocked_domains = make_list("Top Blocked Domains", &stats_clone.top_blocked_domains, Color::Red, size.width);
